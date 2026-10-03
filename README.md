@@ -19,7 +19,8 @@ No dependencies. No internet required. Just Python 3.
 - English help menu (`sel -h`)
 - Colored CLI interface
 - Lightweight (no external libraries)
-
+##screenshot
+![Selwanism screenshot](images/screen.png)
 ## Installation
 
 ### One-liner

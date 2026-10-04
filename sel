@@ -44,16 +44,13 @@ class C:
 # Banner
 # -----------------------------------------------------------------------------
 BANNER = r"""
-   _____ ______ _      __          _   _  _____  _____  __  __
-  / ____|  ____| |     \ \        / / | |/ __ \|  __ \|  \/  |
- | (___ | |__  | |      \ \  /\  / /| | | |  | | |__) | \  / |
-  \___ \|  __| | |       \ \/  \/ / | | | |  | |  _  /| |\/| |
-  ____) | |____| |____    \  /\  /  | | | |__| | | \ \| |  | |
- |_____/|______|______|    \/  \/   |_| |\____/|_|  \_\_|  |_|
-"""
-
-
-# -----------------------------------------------------------------------------
+  ███████╗███████╗██╗     ██╗    ██╗ █████╗ ███╗   ██╗██╗███████╗███╗   ███╗
+  ██╔════╝██╔════╝██║     ██║    ██║██╔══██╗████╗  ██║██║██╔════╝████╗ ████║
+  ███████╗█████╗  ██║     ██║ █╗ ██║███████║██╔██╗ ██║██║███████╗██╔████╔██║
+  ╚════██║██╔══╝  ██║     ██║███╗██║██╔══██║██║╚██╗██║██║╚════██║██║╚██╔╝██║
+  ███████║███████╗███████╗╚███╔███╔╝██║  ██║██║ ╚████║██║███████║██║ ╚═╝ ██║
+  ╚══════╝╚══════╝╚══════╝ ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚══════╝╚═╝     ╚═╝
+"""# -----------------------------------------------------------------------------
 # Data
 # -----------------------------------------------------------------------------
 def load_tools() -> Dict[str, dict]:
@@ -78,19 +75,21 @@ def clear_screen() -> None:
 
 def show_banner() -> None:
     clear_screen()
-    print(f"{C.RED}{BANNER}{C.RESET}")
-    print(f"  {C.DIM}pentesting command reference{C.RESET}\n")
+    print(f"{C.RED}{C.BOLD}{BANNER}{C.RESET}")
+    print(f"  {C.CYAN}pentesting command reference{C.RESET}  {C.DIM}·  v2.0{C.RESET}")
+    print(f"  {C.DIM}{'-' * 68}{C.RESET}\n")
 
 
 def show_tool(name: str, tool: dict) -> None:
+    title = tool["title"]
     print()
-    print(f"  {C.GREEN}{C.BOLD}{tool['title']}{C.RESET}")
-    print(f"  {C.DIM}{'-' * len(tool['title'])}{C.RESET}")
+    print(f"  {C.GREEN}{C.BOLD}{title}{C.RESET}")
+    print(f"  {C.DIM}{'-' * len(title)}{C.RESET}")
     print()
 
     for index, step in enumerate(tool["steps"], start=1):
         label, command = step
-        print(f"  {C.YELLOW}[{index}]{C.RESET} {label}")
+        print(f"  {C.YELLOW}[{index}]{C.RESET} {C.BOLD}{label}{C.RESET}")
         print(f"      {C.CYAN}$ {command}{C.RESET}")
 
     print()
